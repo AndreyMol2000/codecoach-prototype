@@ -1,0 +1,9 @@
+{
+  "name": "codecoach-prototype",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Локальный прототип CodeCoach: практика JavaScript с постепенными подсказками",
+  "type": "module",
+  "scripts": { "start": "node server.mjs", "test": "node --test" },
+  "engines": { "node": ">=22" }
+}
