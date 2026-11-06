@@ -156,7 +156,6 @@ function bindTaskChat(task, progress, editor) {
   const question = document.querySelector('#task-chat-question');
   const submit = document.querySelector('.task-chat-submit');
   const status = document.querySelector('.task-chat-status');
-  const help = document.querySelector('#task-chat-help');
   const helpLabel = document.querySelector('#task-chat-level-label');
   const level = document.querySelector('#task-chat-level');
   const levelDescription = document.querySelector('#task-chat-level-description');
@@ -181,8 +180,6 @@ function bindTaskChat(task, progress, editor) {
     if (tab.id === 'workspace-chat-tab') {
       resizeQuestion();
       log.scrollTop = log.scrollHeight;
-    } else {
-      help.open = false;
     }
   }
   function setExpanded(expanded) {
@@ -210,13 +207,6 @@ function bindTaskChat(task, progress, editor) {
     });
   });
   resize.addEventListener('click', () => setExpanded(!chat.expanded));
-  panel.addEventListener('keydown', e => {
-    if (e.key !== 'Escape') return;
-    if (help.open) {
-      help.open = false;
-      helpLabel.focus();
-    }
-  });
   panel.querySelectorAll('[data-chat-prompt]').forEach(button => {
     button.addEventListener('click', () => {
       question.value = button.dataset.chatPrompt;
@@ -290,12 +280,6 @@ function bindTaskChat(task, progress, editor) {
   }
   updateHelpLevel();
   level.addEventListener('input', updateHelpLevel);
-  help.addEventListener('focusout', e => {
-    if (!help.contains(e.relatedTarget)) help.open = false;
-  });
-  panel.addEventListener('click', e => {
-    if (!help.contains(e.target)) help.open = false;
-  });
   function updateQuestion() {
     chat.draft = question.value;
     submit.disabled = chat.sending || !question.value.trim();
@@ -652,6 +636,28 @@ function render() {
   window.scrollTo(0, 0);
 }
 window.addEventListener('hashchange', render);
+let helpPointerStart = null;
+document.addEventListener('pointerdown', event => {
+  const help = document.querySelector('#task-chat-help');
+  helpPointerStart = help?.contains(event.target) ? help : null;
+}, true);
+document.addEventListener('pointercancel', () => { helpPointerStart = null; }, true);
+document.addEventListener('click', event => {
+  const help = document.querySelector('#task-chat-help');
+  // Releasing a slider drag outside the popup is not an outside click.
+  const startedInside = event.detail > 0 && helpPointerStart === help;
+  helpPointerStart = null;
+  if (help?.open && !help.contains(event.target) && !startedInside) help.open = false;
+}, true);
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  const help = document.querySelector('#task-chat-help');
+  if (!help?.open) return;
+  event.preventDefault();
+  event.stopPropagation();
+  help.open = false;
+  help.querySelector('summary').focus();
+}, true);
 document.addEventListener('click', event => {
   if (event.target.closest('.skip-link')) { event.preventDefault(); document.querySelector('#main').focus(); }
 });
