@@ -634,7 +634,30 @@ function renderResult(task, p) {
       </div>`;
     }).join('');
   }
-  document.querySelector('#success').innerHTML = solvedNow ? `<section class="success-box"><span class="success-icon">✓</span><div><h2>Все тесты пройдены</h2><p>${p.hintsAtSolve === 4 ? 'Решение проверено. Теперь попробуйте перенести идею на другую задачу.' : 'Отличная работа. Закрепите идею в следующем упражнении.'} За первое решение: ${p.xp} XP.</p><a class="button primary small" href="${task.id === 'maximum' ? '#task/minimum' : task.id === 'minimum' ? '#report' : '#home'}">${task.id === 'maximum' ? 'Проверить себя без подсказок' : task.id === 'minimum' ? 'Посмотреть результат сессии' : 'К учебному маршруту'} →</a></div></section>` : '';
+  const nextStep = {
+    maximum: {
+      text: 'Теперь найдите минимум в массиве самостоятельно, без подсказок.',
+      href: '#task/minimum',
+      label: 'Проверить себя без подсказок'
+    },
+    minimum: {
+      text: 'Посмотрите, как прошла сессия: сколько было попыток и подсказок.',
+      href: '#report',
+      label: 'Посмотреть результат сессии'
+    }
+  }[task.id] ?? {
+    text: 'Вернитесь к учебному маршруту, чтобы выбрать задачу.',
+    href: '#home',
+    label: 'К учебному маршруту'
+  };
+  document.querySelector('#success').innerHTML = solvedNow ? `<section class="success-box">
+    <span class="success-icon">✓</span>
+    <div>
+      <h2>Все тесты пройдены</h2>
+      <p>${nextStep.text} За первое решение: ${p.xp} XP.</p>
+      <a class="button primary small" href="${nextStep.href}">${nextStep.label} →</a>
+    </div>
+  </section>` : '';
   const action = document.querySelector('#coach-action');
   action.innerHTML = task.transfer ? '<p class="panel-note">Для чистоты эксперимента решайте задачу самостоятельно. Запускайте тесты кнопкой «Проверить».</p>' : solvedNow ? '<p class="coach-done">✓ Задача решена. Пора проверить навык!</p>' : p.hints >= 4 ? '<p class="panel-note">Все уровни помощи открыты. Примените решение в редакторе и нажмите «Проверить».</p>' : `<button class="button ${p.hints === 3 ? 'outline' : 'secondary'} full" id="hint" ${!result ? 'disabled' : ''}>${p.hints === 3 ? 'Открыть готовое решение · шаг 4' : p.hints ? 'Следующая подсказка · шаг ' + (p.hints + 1) : 'Получить первую подсказку'}</button><p class="panel-note">${!result ? 'Подсказка появится после проверки кода.' : p.hints === 3 ? 'После открытия решения награда составит 20 XP.' : 'Готовый код появится только на четвёртом шаге.'}</p>`;
   document.querySelector('#hint')?.addEventListener('click', () => {
