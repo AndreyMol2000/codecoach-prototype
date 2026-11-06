@@ -156,7 +156,14 @@ async function checkCode(task) {
   if (recordResult(p, result)) { p.xp = reward(p.hints); event('task_solved', { taskId: task.id, xp: p.xp, hints: p.hints, attempts: p.attempts }); }
   event('code_checked', { taskId: task.id, passed: result.passed || 0, total: result.total || 0, kind: result.kind || 'tests' });
   running = false; persist();
-  if (location.hash === '#task/' + task.id) { workspace(task); document.querySelector('#run').focus({ preventScroll: true }); }
+  if (location.hash === '#task/' + task.id) {
+    workspace(task);
+    document.querySelector('#run').focus({ preventScroll: true });
+    document.querySelector('.tests-panel').scrollIntoView({
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+      block: 'start'
+    });
+  }
 }
 
 function download() {
