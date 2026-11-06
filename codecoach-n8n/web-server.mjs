@@ -38,7 +38,12 @@ export function createServer() {
       if (typeof input.question !== 'string' || input.question.length > 1600) return json(res, 400, { ok: false, error: 'Вопрос должен содержать не более 1600 символов.' });
       if (busy) return json(res, 429, { ok: false, error: 'Модель уже обрабатывает другой запрос.' });
       rate.count++; limit.set(key, rate); busy = true; acquired = true;
-      const reply = await fetch(workflowURL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: input.question, helpLevel: input.helpLevel ?? 1 }), signal: AbortSignal.timeout(130000) });
+      const reply = await fetch(workflowURL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: input.question, helpLevel: input.helpLevel ?? 1, allowCodeEdit: input.allowCodeEdit === true }),
+        signal: AbortSignal.timeout(130000)
+      });
       let data;
       try { data = await reply.json(); } catch { data = { ok: false, error: 'n8n вернул ответ в неожиданном формате. Проверьте workflow.' }; }
       if (!reply.ok && !data.error) data.error = 'Workflow n8n сейчас недоступен. Проверьте, что он опубликован.';

@@ -13,7 +13,8 @@ const taskChats = new WeakMap();
 const collapsedBriefs = new WeakSet();
 const openHelpPanels = new WeakSet();
 const taskChatHelpLabels = ['Намёк', 'Объяснение', 'Алгоритм', 'Решение'];
-const taskChatHelpLevels = ['Намёк и вопрос', 'Объяснение причины', 'Алгоритм словами', 'Разрешить готовый код'];
+const taskChatHelpLevels = ['Намёк и вопрос', 'Объяснение причины', 'Алгоритм словами', 'Разрешить готовый код и правки'];
+const taskChatEditCommand = /^(?:(?:да|пожалуйста)[,\s]+)*(?:сам[аи]?\s+)?(?:внеси|исправь|поправь|измени|замени|добавь|удали|перепиши)(?:те)?(?=[\s,.!?:]|$)/iu;
 const app = document.querySelector('#app');
 const escape = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const highlightCode = source => hljs.highlight(source, { language: 'javascript' }).value;
@@ -209,11 +210,37 @@ function bindTaskChat(task, progress, editor) {
       question.focus();
     });
   });
+  function applyEdit(message) {
+    if (!editor.isConnected) return 'Откройте задачу, чтобы применить правку.';
+    if (editor.disabled) return 'Дождитесь завершения проверки кода.';
+    if (editor.value !== message.code) return 'Код в редакторе изменился. Запросите новую правку.';
+    const { before, after } = message.edit;
+    const start = editor.value.indexOf(before);
+    const matches = before ? start !== -1 && editor.value.indexOf(before, start + 1) === -1 : editor.value === '';
+    if (!matches) return 'Не удалось однозначно найти фрагмент. Запросите новую правку.';
+    editor.setRangeText(after, start, start + before.length);
+    editor.dispatchEvent(new Event('input'));
+    message.editApplied = true;
+    return '';
+  }
+  chat.applyEdit = applyEdit;
   function appendMessage(message) {
-    const { text, answer } = message;
+    const { text, answer, edit, editApplied, editError } = message;
     log.insertAdjacentHTML('beforeend', `<article class="task-chat-message">
       <p>${escape(text)}</p>
-    </article>${answer ? `<article class="task-chat-message task-chat-reply"><strong>Qwen3</strong>${renderChatAnswer(answer)}</article>` : ''}`);
+    </article>${answer ? `<article class="task-chat-message task-chat-reply"><strong>Qwen3</strong>${renderChatAnswer(answer)}
+      ${editApplied ? '<p>Правка применена.</p>' : editError ? `<p>${escape(editError)}</p>` : ''}
+      ${edit ? `<details ${editApplied ? '' : 'open'}><summary>${editApplied ? 'Что изменилось' : 'Предложенная правка'}</summary>
+        ${codeSample(edit.before || 'Пустой редактор', 'Было', Boolean(edit.before))}
+        ${codeSample(edit.after || 'Удалить фрагмент', 'Станет', Boolean(edit.after))}
+        ${editApplied ? '' : '<button class="button secondary small" type="button">Применить правку</button>'}
+      </details>` : ''}
+    </article>` : ''}`);
+    if (edit && !editApplied) log.lastElementChild.querySelector('button').addEventListener('click', () => {
+      const error = applyEdit(message);
+      if (error) return notify(error);
+      renderChat();
+    });
   }
   function renderChat() {
     if (!panel.isConnected) return;
@@ -279,8 +306,12 @@ function bindTaskChat(task, progress, editor) {
     const result = progress.result;
     const tests = (hasStaleResult(progress) ? 'Код изменён после проверки. Предыдущий результат: ' : '')
       + (result?.error || (result ? `Пройдено ${result.passed} из ${result.total}` : 'Код ещё не проверен'));
-    const message = { text, helpLevel: Number(chat.helpLevel), code: editor.value };
+    const autoApply = taskChatEditCommand.test(text);
+    const message = { text, helpLevel: autoApply ? 4 : Number(chat.helpLevel), code: editor.value };
     const context = `\n\nЗадача: ${task.title}. ${task.description}\n${task.contract}\nПроверка: ${tests.slice(0, 200)}\nКод:\n${message.code}`;
+    const previous = autoApply && chat.messages.findLast(entry => entry.answer && entry.code === message.code);
+    const historyLimit = Math.min(400, Math.max(0, question.maxLength - text.length - context.length));
+    const history = previous ? `\n\nПредыдущий ответ чата:\n${previous.answer}`.slice(0, historyLimit) : '';
     chat.messages.push(message);
     chat.draft = '';
     chat.error = '';
@@ -292,14 +323,22 @@ function bindTaskChat(task, progress, editor) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          question: (text + context).slice(0, question.maxLength),
-          helpLevel: message.helpLevel
+          question: (text + history + context).slice(0, question.maxLength),
+          helpLevel: message.helpLevel,
+          allowCodeEdit: message.helpLevel === 4
         }),
         signal: AbortSignal.timeout(140000)
       });
       const data = await response.json();
       if (response.ok && data?.ok && typeof data.answer === 'string' && data.answer.trim()) {
         message.answer = data.answer;
+        const { edit } = data;
+        if (message.helpLevel === 4 && !data.truncated && typeof edit?.before === 'string' && typeof edit.after === 'string' && edit.before !== edit.after) {
+          message.edit = edit;
+        }
+        if (autoApply) {
+          message.editError = message.edit ? chat.applyEdit(message) : 'Qwen3 не вернула правку для редактора. Повторите запрос.';
+        }
       } else {
         chat.error = data?.error || 'Qwen3 не вернула ответ.';
       }
