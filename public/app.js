@@ -9,14 +9,32 @@ hljs.registerLanguage('javascript', javascript);
 
 let state = loadState();
 let storageWarning = false;
+const taskChats = new WeakMap();
 const collapsedBriefs = new WeakSet();
 const openHelpPanels = new WeakSet();
+const taskChatHelpLabels = ['Намёк', 'Объяснение', 'Алгоритм', 'Решение'];
+const taskChatHelpLevels = ['Намёк и вопрос', 'Объяснение причины', 'Алгоритм словами', 'Разрешить готовый код'];
 const app = document.querySelector('#app');
 const escape = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const highlightCode = source => hljs.highlight(source, { language: 'javascript' }).value;
 
 function codeSample(source, caption, highlight = true) {
   return `<figure class="code-sample"><figcaption>${escape(caption)}</figcaption><pre><code class="syntax-highlight">${highlight ? highlightCode(source) : escape(source)}</code></pre></figure>`;
+}
+
+function renderChatAnswer(answer) {
+  const source = answer.replace(/\r\n/g, '\n');
+  const blocks = /^ {0,3}```[ \t]*([\w+-]*)[ \t]*\n([\s\S]*?)^ {0,3}```[ \t]*$/gm;
+  const paragraph = text => text.trim() ? `<p>${escape(text.trim())}</p>` : '';
+  let html = '';
+  let offset = 0;
+  for (const match of source.matchAll(blocks)) {
+    const language = match[1].toLowerCase();
+    html += paragraph(source.slice(offset, match.index));
+    html += codeSample(match[2].replace(/\n$/, ''), 'Код', !language || language === 'js' || language === 'javascript');
+    offset = match.index + match[0].length;
+  }
+  return html + paragraph(source.slice(offset));
 }
 
 const hasStaleResult = progress => Boolean(progress.result && progress.checkedCode !== progress.code);
@@ -38,7 +56,7 @@ function shell(page) {
   app.innerHTML = `<header class="header"><a href="#home" class="brand" aria-label="CodeCoach на главную"><img src="./icon.svg" width="34" height="34" alt=""><span>Code<span class="muted">Coach</span></span></a>
     <nav aria-label="Основная навигация"><a href="#home" ${page === 'home' ? 'aria-current="page"' : ''}>Практика</a><a href="#report" ${page === 'report' ? 'aria-current="page"' : ''}>Результаты пилота</a></nav>
     <div class="header-right"><span class="local-indicator">Локальный прототип</span><span class="avatar" title="Анонимный участник">${state.participants.findIndex(p => p.id === state.currentId) + 1}</span></div></header><main id="main" tabindex="-1"></main>
-    <footer><span>CodeCoach · учебный прототип</span><span>JavaScript · без регистрации · данные в этом браузере</span></footer>`;
+    <footer><span>CodeCoach · учебный прототип</span><span>JavaScript · без регистрации · прогресс в этом браузере</span></footer>`;
   return document.querySelector('#main');
 }
 
@@ -53,8 +71,248 @@ function home() {
       return `<a class="task-row ${p?.solved ? 'completed' : ''}" href="#task/${task.id}"><span class="task-number">${p?.solved ? '✓' : '0' + (i + 1)}</span><div class="task-info"><h3>${task.title} ${task.transfer ? '<span class="tag lilac">Без подсказок</span>' : ''}</h3><p>${task.category} <span>·</span> ${task.minutes} мин</p></div><div class="task-meta"><span class="difficulty">${'▰'.repeat(task.difficulty)}<span class="dim">${'▰'.repeat(3 - task.difficulty)}</span></span><span>${p?.solved ? p.xp + ' XP' : 'до 100 XP'}</span></div><span class="row-arrow" aria-hidden="true">↗</span></a>`;
     }).join('')}</div></section>
     <aside class="progress-panel"><div class="eyebrow">ТВОЙ ПРОГРЕСС</div><div class="xp-number">${xp}<span> XP</span></div><div class="progress-track"><i style="width:${Math.min(100, xp % 200 / 2)}%"></i></div><div class="progress-label"><span>Уровень ${Math.floor(xp / 200) + 1}</span><span>${200 - xp % 200} XP до следующего</span></div><div class="progress-stats"><div><strong>${solvedCount()}<small> / ${tasks.length}</small></strong><span>задач решено</span></div><div><strong>${Object.values(current().progress).reduce((n, p) => n + p.attempts, 0)}</strong><span>проверок кода</span></div></div><div class="skill"><span>Массивы и границы</span><span>${current().progress.minimum?.solved ? 'Закреплено' : current().progress.maximum?.solved ? 'Проверить перенос' : 'Впереди'}</span></div><p class="panel-note">XP начисляется один раз за задачу. С подсказками: 80 / 60 / 40 XP, с решением: 20 XP.</p></aside></div>
-    <section class="principles"><div><span>01</span><h3>Настоящая проверка</h3><p>Твой код выполняется на тестовых данных прямо в браузере.</p></div><div><span>02</span><h3>Помощь по шагам</h3><p>От вопроса к объяснению. Решение открывается только на четвёртом шаге.</p></div><div><span>03</span><h3>Практика без ключей</h3><p>В прототипе работает наставник на правилах. Подключение LLM — следующий этап.</p></div></section>`;
+    <section class="principles"><div><span>01</span><h3>Настоящая проверка</h3><p>Твой код выполняется на тестовых данных прямо в браузере.</p></div><div><span>02</span><h3>Помощь по шагам</h3><p>От вопроса к объяснению. Решение открывается только на четвёртом шаге.</p></div><div><span>03</span><h3>Практика без ключей</h3><p>Подсказки по тестам и чат с локальной Qwen3.</p></div></section>`;
 }
+
+function taskChatPanel(task) {
+  return `<div id="workspace-chat-panel" role="tabpanel" aria-labelledby="workspace-chat-tab" hidden>
+    <section class="task-chat" id="task-chat" aria-labelledby="task-chat-title">
+      <div class="task-chat-heading">
+        <span class="task-chat-avatar" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" focusable="false">
+            <path d="M12 3 V21 M3 12 H21 M5.6 5.6 L18.4 18.4 M5.6 18.4 L18.4 5.6"/>
+          </svg>
+        </span>
+        <div class="task-chat-heading-text">
+          <h3 id="task-chat-title" tabindex="-1">Чат по задаче</h3>
+          <p class="task-chat-topic" title="${escape(task.title)}">${escape(task.title)}</p>
+        </div>
+        <button class="text-button task-chat-resize" id="task-chat-resize" type="button" aria-label="Расширить чат" title="Расширить чат">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path></path></svg>
+        </button>
+      </div>
+      <div class="task-chat-log" id="task-chat-log" role="log" aria-label="Сообщения чата">
+        <div class="task-chat-empty">
+          <p>С чего начнём?</p>
+          <div class="task-chat-suggestions">
+            <button type="button" data-chat-prompt="Объясни условие текущей задачи простыми словами.">
+              <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3 H15 L19 7 V21 H5 V3 Z M14 3 V8 H19 M9 12 H15 M9 16 H13"/></svg>
+              Разобрать условие <span aria-hidden="true">→</span>
+            </button>
+            <button type="button" data-chat-prompt="Помоги понять, где искать ошибку в моём коде.">
+              <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7 L3 12 L8 17 M16 7 L21 12 L16 17 M14 4 L10 20"/></svg>
+              Найти ошибку <span aria-hidden="true">→</span>
+            </button>
+          </div>
+        </div>
+        <p class="task-chat-status" role="status"></p>
+      </div>
+      <form class="task-chat-composer" id="task-chat-form">
+        <textarea id="task-chat-question" aria-label="Вопрос по задаче" rows="1" maxlength="1600" required placeholder="Напиши вопрос…"></textarea>
+        <div class="task-chat-controls">
+          <details class="task-chat-help" id="task-chat-help">
+            <summary id="task-chat-level-label"><span id="task-chat-level-text"></span><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9 L12 15 L18 9"/></svg></summary>
+            <div class="task-chat-help-options" role="group" aria-label="Глубина помощи">
+              <label id="task-chat-level-description" for="task-chat-level"></label>
+              <div class="task-chat-slider">
+                <span class="task-chat-slider-marks" aria-hidden="true">${taskChatHelpLevels.map(() => '<i></i>').join('')}</span>
+                <input type="range" id="task-chat-level" aria-label="Глубина помощи" min="1" max="${taskChatHelpLevels.length}" step="1" value="1">
+              </div>
+            </div>
+          </details>
+          <button class="button task-chat-submit" type="submit" aria-label="Отправить вопрос" title="Отправить вопрос">
+            <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 3 L11 13 M21 3 L15 21 L11 13 L3 9 Z"/>
+            </svg>
+          </button>
+        </div>
+      </form>
+    </section>
+  </div>`;
+}
+
+function bindTaskChat(task, progress, editor) {
+  let chat = taskChats.get(progress);
+  if (!chat) {
+    chat = { messages: [], draft: '', helpLevel: '1', activeTab: 'workspace-hints-tab', expanded: false, sending: false, error: '' };
+    taskChats.set(progress, chat);
+  }
+  const log = document.querySelector('#task-chat-log');
+  const question = document.querySelector('#task-chat-question');
+  const submit = document.querySelector('.task-chat-submit');
+  const status = document.querySelector('.task-chat-status');
+  const help = document.querySelector('#task-chat-help');
+  const helpLabel = document.querySelector('#task-chat-level-label');
+  const level = document.querySelector('#task-chat-level');
+  const levelDescription = document.querySelector('#task-chat-level-description');
+  const levelText = document.querySelector('#task-chat-level-text');
+  const panel = document.querySelector('#task-chat');
+  const workspaceHelp = panel.closest('#workspace-help');
+  const tabs = [...document.querySelectorAll('.workspace-side-tabs [role="tab"]')];
+  const resize = document.querySelector('#task-chat-resize');
+  const resizeIcon = resize.querySelector('path');
+  function resizeQuestion() {
+    question.style.height = 'auto';
+    question.style.height = `${Math.max(28, Math.min(question.scrollHeight, 96))}px`;
+  }
+  function selectTab(tab) {
+    chat.activeTab = tab.id;
+    for (const option of tabs) {
+      const selected = option === tab;
+      option.setAttribute('aria-selected', String(selected));
+      option.tabIndex = selected ? 0 : -1;
+      document.getElementById(option.getAttribute('aria-controls')).hidden = !selected;
+    }
+    if (tab.id === 'workspace-chat-tab') {
+      resizeQuestion();
+      log.scrollTop = log.scrollHeight;
+    } else {
+      help.open = false;
+    }
+  }
+  function setExpanded(expanded) {
+    chat.expanded = expanded;
+    panel.classList.toggle('is-expanded', expanded);
+    const label = expanded ? 'Уменьшить чат' : 'Расширить чат';
+    resize.setAttribute('aria-label', label);
+    resize.title = label;
+    resizeIcon.setAttribute('d', expanded
+      ? 'M21 3l-7 7M14 4v6h6M3 21l7-7M4 14h6v6'
+      : 'M15 3h6v6M21 3l-7 7M9 21H3v-6M3 21l7-7');
+    resizeQuestion();
+  }
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => selectTab(tab));
+    tab.addEventListener('keydown', e => {
+      let next;
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') next = tabs[1 - index];
+      if (e.key === 'Home') next = tabs[0];
+      if (e.key === 'End') next = tabs[1];
+      if (!next) return;
+      e.preventDefault();
+      selectTab(next);
+      next.focus();
+    });
+  });
+  resize.addEventListener('click', () => setExpanded(!chat.expanded));
+  panel.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (help.open) {
+      help.open = false;
+      helpLabel.focus();
+    }
+  });
+  panel.querySelectorAll('[data-chat-prompt]').forEach(button => {
+    button.addEventListener('click', () => {
+      question.value = button.dataset.chatPrompt;
+      question.dispatchEvent(new Event('input'));
+      question.focus();
+    });
+  });
+  function appendMessage(message) {
+    const { text, answer } = message;
+    log.insertAdjacentHTML('beforeend', `<article class="task-chat-message">
+      <p>${escape(text)}</p>
+    </article>${answer ? `<article class="task-chat-message task-chat-reply"><strong>Qwen3</strong>${renderChatAnswer(answer)}</article>` : ''}`);
+  }
+  function renderChat() {
+    if (!panel.isConnected) return;
+    if (chat.messages.length) {
+      log.replaceChildren();
+      chat.messages.forEach(appendMessage);
+    }
+    if (chat.sending) {
+      status.innerHTML = '<span role="img" aria-label="Qwen3 готовит ответ">•••</span>';
+    } else {
+      status.textContent = chat.error;
+    }
+    log.append(status);
+    if (chat.messages.length || chat.error) log.scrollTop = log.scrollHeight;
+    if (question.value !== chat.draft) question.value = chat.draft;
+    updateQuestion();
+  }
+  chat.render = renderChat;
+  setExpanded(chat.expanded);
+  selectTab(document.getElementById(chat.activeTab));
+  workspaceHelp.addEventListener('toggle', () => {
+    if (workspaceHelp.isConnected && workspaceHelp.open) selectTab(document.getElementById(chat.activeTab));
+  });
+  renderChat();
+  level.value = chat.helpLevel;
+  function updateHelpLevel() {
+    chat.helpLevel = level.value;
+    const levelIndex = level.valueAsNumber - 1;
+    levelText.textContent = taskChatHelpLabels[levelIndex];
+    helpLabel.setAttribute('aria-label', `Глубина помощи — ${taskChatHelpLevels[levelIndex]}`);
+    levelDescription.textContent = taskChatHelpLevels[levelIndex];
+    level.setAttribute('aria-valuetext', taskChatHelpLevels[levelIndex]);
+    level.parentElement.style.setProperty('--level-progress', levelIndex / (taskChatHelpLevels.length - 1));
+  }
+  updateHelpLevel();
+  level.addEventListener('input', updateHelpLevel);
+  help.addEventListener('focusout', e => {
+    if (!help.contains(e.relatedTarget)) help.open = false;
+  });
+  panel.addEventListener('click', e => {
+    if (!help.contains(e.target)) help.open = false;
+  });
+  function updateQuestion() {
+    chat.draft = question.value;
+    submit.disabled = chat.sending || !question.value.trim();
+    resizeQuestion();
+  }
+  question.addEventListener('input', updateQuestion);
+  question.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+    e.preventDefault();
+    if (!e.repeat && !submit.disabled) question.form.requestSubmit(submit);
+  });
+  document.querySelector('#task-chat-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const text = question.value.trim();
+    if (chat.sending) return;
+    if (text.length < 5) {
+      chat.error = 'Напишите вопрос минимум из 5 символов.';
+      renderChat();
+      return;
+    }
+    const result = progress.result;
+    const tests = (hasStaleResult(progress) ? 'Код изменён после проверки. Предыдущий результат: ' : '')
+      + (result?.error || (result ? `Пройдено ${result.passed} из ${result.total}` : 'Код ещё не проверен'));
+    const message = { text, helpLevel: Number(chat.helpLevel), code: editor.value };
+    const context = `\n\nЗадача: ${task.title}. ${task.description}\n${task.contract}\nПроверка: ${tests.slice(0, 200)}\nКод:\n${message.code}`;
+    chat.messages.push(message);
+    chat.draft = '';
+    chat.error = '';
+    chat.sending = true;
+    renderChat();
+    question.focus();
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: (text + context).slice(0, question.maxLength),
+          helpLevel: message.helpLevel
+        }),
+        signal: AbortSignal.timeout(140000)
+      });
+      const data = await response.json();
+      if (response.ok && data?.ok && typeof data.answer === 'string' && data.answer.trim()) {
+        message.answer = data.answer;
+      } else {
+        chat.error = data?.error || 'Qwen3 не вернула ответ.';
+      }
+    } catch {
+      chat.error = 'Не удалось получить ответ Qwen3. Повторите запрос.';
+    } finally {
+      if (chat.error && !chat.draft) chat.draft = text;
+      chat.sending = false;
+      chat.render();
+    }
+  });
+}
+
 function workspace(task) {
   const p = getProgress(current(), task);
   if (p.result && p.checkedCode === undefined) p.checkedCode = p.code;
@@ -75,7 +333,7 @@ function workspace(task) {
     <div class="workspace-layout">
     <div class="workspace-help-column">
     <details class="workspace-side" id="workspace-help" ${helpOpen ? 'open' : ''}>
-      <summary class="workspace-help-toggle" aria-label="${task.transfer ? 'Самостоятельная практика' : 'Подсказки'}">
+      <summary class="workspace-help-toggle" aria-label="${task.transfer ? 'Самостоятельная практика' : 'Подсказки и чат'}">
         <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
           <path d="M9 17 V16 C9 15 8.6 14.3 7.9 13.6 A6 6 0 1 1 16.1 13.6 C15.4 14.3 15 15 15 16 V17 Z M10 20 H14"/>
         </svg>
@@ -85,7 +343,13 @@ function workspace(task) {
         </svg>
       </summary>
       <div class="workspace-side-content">
+    ${task.transfer ? '' : `<div class="workspace-side-tabs" role="tablist" aria-label="Помощь по задаче">
+      <button type="button" id="workspace-hints-tab" role="tab" aria-selected="true" aria-controls="workspace-hints-panel">Подсказки</button>
+      <button type="button" id="workspace-chat-tab" role="tab" aria-selected="false" aria-controls="workspace-chat-panel" tabindex="-1">Чат</button>
+    </div>
+    <div id="workspace-hints-panel" role="tabpanel" aria-labelledby="workspace-hints-tab">`}
     <aside class="coach-panel"><div class="coach-heading"><span class="coach-symbol">✳</span><div><h2>Твой наставник</h2><span>${task.transfer ? 'Самостоятельная практика' : 'Подсказки по результатам тестов'}</span></div><span class="live-dot"></span></div><div class="coach-body"><div class="coach-intro">${task.transfer ? 'Попробуй применить то, что узнал в первой задаче. Здесь доступны тесты, а подсказки отключены.' : 'Нажми «Проверить», когда будешь готов. По результатам попытки можно открыть подсказку.'}</div><div class="hint-steps" aria-label="Уровни помощи">${[1, 2, 3, 4].map(n => `<span class="${p.hints >= n ? 'used' : ''}">${n}</span>`).join('<i></i>')}</div><div id="hints">${(p.hintHistory || []).map(hintCard).join('')}</div><div id="coach-action"></div></div><div class="coach-footer">Наставник на правилах · без внешней AI-модели<br>Тесты выполняются в этом браузере.</div></aside>
+    ${task.transfer ? '' : `</div>${taskChatPanel(task)}`}
       </div>
     </details>
     </div>
@@ -201,6 +465,7 @@ function workspace(task) {
     else collapsedBriefs.add(p);
   });
   editor.value = p.code;
+  if (!task.transfer) bindTaskChat(task, p, editor);
   function syncScroll() {
     highlight.style.transform = `translate(${-editor.scrollLeft}px, ${-editor.scrollTop}px)`;
     lineNumbers.style.transform = `translateY(${-editor.scrollTop}px)`;
