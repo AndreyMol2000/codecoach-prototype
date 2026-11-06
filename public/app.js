@@ -12,6 +12,7 @@ let running = false;
 let storageWarning = false;
 const app = document.querySelector('#app');
 const escape = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const highlightCode = source => hljs.highlight(source, { language: 'javascript' }).value;
 const current = () => state.participants.find(p => p.id === state.currentId);
 const totalXP = () => Object.values(current().progress).reduce((sum, p) => sum + (p.xp || 0), 0);
 const solvedCount = () => Object.values(current().progress).filter(p => p.solved).length;
@@ -54,7 +55,12 @@ function workspace(task) {
   const main = shell('workspace');
   main.innerHTML = `<div class="workspace-breadcrumb"><a href="#home">← Все задачи</a><span>ПРАКТИКА / ${escape(task.category.toUpperCase())}</span><span class="tag">JavaScript</span></div>
     <section class="workspace-title"><div><div class="eyebrow">${task.transfer ? 'ШАГ 02 · ПРОВЕРКА ПЕРЕНОСА НАВЫКА' : 'ПРАКТИЧЕСКАЯ ЗАДАЧА'}</div><h1>${task.title}</h1></div><div class="workspace-count"><span>${p.solved ? '✓ Решено · ' + p.xp + ' XP' : 'До 100 XP'}</span><span>Попыток: <b id="attempts">${p.attempts}</b></span></div></section>
-    <div class="workspace-layout"><div class="coding-column"><section class="brief"><h2>Условие</h2><p>${task.description}</p><p class="contract">${task.contract}</p><code>${escape(task.example)}</code></section>
+    <div class="workspace-layout"><div class="coding-column"><section class="brief"><h2>Условие</h2><p>${task.description}</p><p class="contract">${task.contract}</p>
+      <figure class="brief-example">
+        <figcaption>Пример</figcaption>
+        <pre><code class="syntax-highlight">${highlightCode(task.example)}</code></pre>
+      </figure>
+    </section>
     <section class="editor-panel" aria-label="Редактор решения">
       <div class="editor-toolbar">
         <span><span class="file-icon">JS</span> solution.js</span>
@@ -66,7 +72,7 @@ function workspace(task) {
       <div class="editor-wrap">
         <pre class="line-numbers" aria-hidden="true"><span id="line-numbers"></span></pre>
         <div class="editor-source">
-          <pre class="editor-highlight" aria-hidden="true"><code id="code-highlight"></code></pre>
+          <pre class="editor-highlight" aria-hidden="true"><code id="code-highlight" class="syntax-highlight"></code></pre>
           <textarea id="code-editor" aria-label="Код решения JavaScript" spellcheck="false" autocapitalize="off" autocomplete="off" ${running ? 'disabled' : ''}></textarea>
         </div>
       </div>
@@ -84,7 +90,7 @@ function workspace(task) {
     lineNumbers.style.transform = `translateY(${-editor.scrollTop}px)`;
   }
   function renderCode() {
-    highlight.innerHTML = hljs.highlight(editor.value, { language: 'javascript' }).value;
+    highlight.innerHTML = highlightCode(editor.value);
     lineNumbers.textContent = editor.value.split('\n').map((_, i) => i + 1).join('\n');
     syncScroll();
   }
