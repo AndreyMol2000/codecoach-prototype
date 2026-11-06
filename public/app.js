@@ -2,6 +2,10 @@ import { tasks, getTask } from './tasks.js';
 import { runCode } from './runner.js';
 import { reward, coachHint, recommendation, experimentSummary } from './learning.js';
 import { loadState, saveState, newParticipant, getProgress, recordResult } from './store.js';
+import hljs from './vendor/highlightjs/core.min.js';
+import javascript from './vendor/highlightjs/javascript.min.js';
+
+hljs.registerLanguage('javascript', javascript);
 
 let state = loadState();
 let running = false;
@@ -51,19 +55,70 @@ function workspace(task) {
   main.innerHTML = `<div class="workspace-breadcrumb"><a href="#home">← Все задачи</a><span>ПРАКТИКА / ${escape(task.category.toUpperCase())}</span><span class="tag">JavaScript</span></div>
     <section class="workspace-title"><div><div class="eyebrow">${task.transfer ? 'ШАГ 02 · ПРОВЕРКА ПЕРЕНОСА НАВЫКА' : 'ПРАКТИЧЕСКАЯ ЗАДАЧА'}</div><h1>${task.title}</h1></div><div class="workspace-count"><span>${p.solved ? '✓ Решено · ' + p.xp + ' XP' : 'До 100 XP'}</span><span>Попыток: <b id="attempts">${p.attempts}</b></span></div></section>
     <div class="workspace-layout"><div class="coding-column"><section class="brief"><h2>Условие</h2><p>${task.description}</p><p class="contract">${task.contract}</p><code>${escape(task.example)}</code></section>
-    <section class="editor-panel" aria-label="Редактор решения"><div class="editor-toolbar"><span><span class="file-icon">JS</span> solution.js</span><button class="text-button" id="reset-code" ${running ? 'disabled' : ''}>Вернуть стартовый код</button></div><div class="editor-wrap"><pre class="line-numbers" id="line-numbers" aria-hidden="true"></pre><textarea id="code-editor" aria-label="Код решения JavaScript" spellcheck="false" autocapitalize="off" autocomplete="off" ${running ? 'disabled' : ''}></textarea></div><div class="editor-bottom"><span>Ctrl / ⌘ + Enter — проверить</span><button class="button primary small" id="run" ${running ? 'disabled' : ''}>${running ? 'Проверяем…' : '▶ Проверить код'}</button></div></section>
+    <section class="editor-panel" aria-label="Редактор решения">
+      <div class="editor-toolbar">
+        <span><span class="file-icon">JS</span> solution.js</span>
+        <div class="editor-actions">
+          <button class="text-button" id="prettify-code" title="Форматировать код" ${running ? 'disabled' : ''}>Prettify</button>
+          <button class="text-button" id="reset-code" ${running ? 'disabled' : ''}>Вернуть стартовый код</button>
+        </div>
+      </div>
+      <div class="editor-wrap">
+        <pre class="line-numbers" aria-hidden="true"><span id="line-numbers"></span></pre>
+        <div class="editor-source">
+          <pre class="editor-highlight" aria-hidden="true"><code id="code-highlight"></code></pre>
+          <textarea id="code-editor" aria-label="Код решения JavaScript" spellcheck="false" autocapitalize="off" autocomplete="off" ${running ? 'disabled' : ''}></textarea>
+        </div>
+      </div>
+      <div class="editor-bottom"><span>Ctrl / ⌘ + Enter — проверить</span><button class="button primary small" id="run" ${running ? 'disabled' : ''}>${running ? 'Проверяем…' : '▶ Проверить код'}</button></div>
+    </section>
     <section class="tests-panel" aria-live="polite"><div class="tests-heading"><h2>Тесты <span id="test-count"></span></h2><span class="muted">Лимит выполнения: 1,8 с</span></div><div id="tests"></div></section><div id="success"></div></div>
     <aside class="coach-panel"><div class="coach-heading"><span class="coach-symbol">✳</span><div><h2>Твой наставник</h2><span>${task.transfer ? 'Самостоятельная практика' : 'Подсказки по результатам тестов'}</span></div><span class="live-dot"></span></div><div class="coach-body"><div class="coach-intro">${task.transfer ? 'Попробуй применить то, что узнал в первой задаче. Здесь доступны тесты, а подсказки отключены.' : 'Сначала запусти тесты. Вместе найдём направление, в котором стоит искать ошибку.'}</div><div class="hint-steps" aria-label="Уровни помощи">${[1, 2, 3, 4].map(n => `<span class="${p.hints >= n ? 'used' : ''}">${n}</span>`).join('<i></i>')}</div><div id="hints">${(p.hintHistory || []).map(hintCard).join('')}</div><div id="coach-action"></div></div><div class="coach-footer">Наставник на правилах · без внешней AI-модели<br>Код и результаты остаются в этом браузере.</div></aside></div>`;
   const editor = document.querySelector('#code-editor');
+  const highlight = document.querySelector('#code-highlight');
+  const lineNumbers = document.querySelector('#line-numbers');
+  const prettify = document.querySelector('#prettify-code');
   editor.value = p.code;
-  function lines() { document.querySelector('#line-numbers').textContent = editor.value.split('\n').map((_, i) => i + 1).join('\n'); }
-  lines();
-  editor.addEventListener('input', () => { p.code = editor.value; p.result = null; lines(); persist(); renderResult(task, p); });
-  editor.addEventListener('scroll', () => { document.querySelector('#line-numbers').scrollTop = editor.scrollTop; });
+  function syncScroll() {
+    highlight.style.transform = `translate(${-editor.scrollLeft}px, ${-editor.scrollTop}px)`;
+    lineNumbers.style.transform = `translateY(${-editor.scrollTop}px)`;
+  }
+  function renderCode() {
+    highlight.innerHTML = hljs.highlight(editor.value, { language: 'javascript' }).value;
+    lineNumbers.textContent = editor.value.split('\n').map((_, i) => i + 1).join('\n');
+    syncScroll();
+  }
+  renderCode();
+  editor.addEventListener('input', () => { p.code = editor.value; p.result = null; renderCode(); persist(); renderResult(task, p); });
+  editor.addEventListener('scroll', syncScroll);
   editor.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); checkCode(task); }
     if (e.key === 'Tab') { e.preventDefault(); editor.setRangeText('  ', editor.selectionStart, editor.selectionEnd, 'end'); editor.dispatchEvent(new Event('input')); }
     if (e.key === 'Escape') { e.preventDefault(); document.querySelector('#run').focus(); }
+  });
+  prettify.addEventListener('click', async () => {
+    const source = editor.value;
+    prettify.disabled = true;
+    try {
+      const [{ format }, babel, estree] = await Promise.all([
+        import('./vendor/prettier/standalone.mjs'),
+        import('./vendor/prettier/plugins/babel.mjs'),
+        import('./vendor/prettier/plugins/estree.mjs')
+      ]);
+      const formatted = await format(source, { parser: 'babel', plugins: [babel, estree], singleQuote: true });
+      if (editor.isConnected && editor.value === source && formatted !== source) {
+        editor.value = formatted;
+        editor.dispatchEvent(new Event('input'));
+      }
+    } catch (error) {
+      if (editor.isConnected && editor.value === source) {
+        notify(error instanceof SyntaxError
+          ? 'Исправьте синтаксическую ошибку и нажмите Prettify снова.'
+          : 'Не удалось отформатировать код. Попробуйте ещё раз.');
+      }
+    } finally {
+      prettify.disabled = false;
+    }
   });
   document.querySelector('#run').addEventListener('click', () => checkCode(task));
   document.querySelector('#reset-code').addEventListener('click', () => { p.code = task.starter; p.result = null; persist(); workspace(task); notify('Стартовый код восстановлен. История попыток сохранена.'); });
