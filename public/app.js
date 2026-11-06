@@ -20,7 +20,7 @@ const escape = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', 
 const highlightCode = source => hljs.highlight(source, { language: 'javascript' }).value;
 
 function codeSample(source, caption, highlight = true) {
-  return `<figure class="code-sample"><figcaption>${escape(caption)}</figcaption><pre><code class="syntax-highlight">${highlight ? highlightCode(source) : escape(source)}</code></pre></figure>`;
+  return `<figure class="code-sample">${caption ? `<figcaption>${escape(caption)}</figcaption>` : ''}<pre><code class="syntax-highlight">${highlight ? highlightCode(source) : escape(source)}</code></pre></figure>`;
 }
 
 function renderChatAnswer(answer) {
@@ -412,8 +412,8 @@ function workspace(task) {
       <button type="button" id="workspace-hints-tab" role="tab" aria-selected="true" aria-controls="workspace-hints-panel">Подсказки</button>
       <button type="button" id="workspace-chat-tab" role="tab" aria-selected="false" aria-controls="workspace-chat-panel" tabindex="-1">Чат</button>
     </div>
-    <div id="workspace-hints-panel" role="tabpanel" aria-labelledby="workspace-hints-tab">`}
-    <aside class="coach-panel"><div class="coach-heading"><span class="coach-symbol">✳</span><div><h2>Твой наставник</h2><span>${task.transfer ? 'Самостоятельная практика' : 'Подсказки по результатам тестов'}</span></div><span class="live-dot"></span></div><div class="coach-body"><div class="coach-intro">${task.transfer ? 'Попробуй применить то, что узнал в первой задаче. Здесь доступны тесты, а подсказки отключены.' : 'Нажми «Проверить», когда будешь готов. По результатам попытки можно открыть подсказку.'}</div><div class="hint-steps" aria-label="Уровни помощи">${[1, 2, 3, 4].map(n => `<span class="${p.hints >= n ? 'used' : ''}">${n}</span>`).join('<i></i>')}</div><div id="hints">${(p.hintHistory || []).map(hintCard).join('')}</div><div id="coach-action"></div></div><div class="coach-footer">Наставник на правилах · без внешней AI-модели<br>Тесты выполняются в этом браузере.</div></aside>
+    <div id="workspace-hints-panel" role="tabpanel" aria-labelledby="workspace-hints-tab" tabindex="0">`}
+    <aside class="coach-panel"><div class="coach-heading"><span class="coach-symbol">✳</span><div><h2>Твой наставник</h2><span>${task.transfer ? 'Самостоятельная практика' : 'Подсказки по результатам тестов'}</span></div><span class="live-dot"></span></div><div class="coach-body"><div class="coach-intro">${task.transfer ? 'Попробуй применить то, что узнал в первой задаче. Здесь доступны тесты, а подсказки отключены.' : 'Нажми «Проверить», когда будешь готов. По результатам попытки можно открыть подсказку.'}</div><div class="hint-steps" aria-label="Уровни помощи">${[1, 2, 3, 4].map(n => `<span class="${p.hints >= n ? 'used' : ''}">${n}</span>`).join('<i></i>')}</div><div id="hints">${(p.hintHistory || []).map(hintCard).join('')}</div><div id="coach-action"></div></div></aside>
     ${task.transfer ? '' : `</div>${taskChatPanel(task)}`}
       </div>
     </details>
@@ -592,7 +592,13 @@ function workspace(task) {
   });
   renderResult(task, p);
 }
-function hintCard(hint) { return `<article class="hint-card"><h3>${escape(hint.title)}</h3><p>${escape(hint.text)}</p>${hint.code ? `<pre>${escape(hint.code)}</pre>` : ''}</article>`; }
+function hintCard(hint) {
+  return `<article class="hint-card">
+    <h3>${escape(hint.title)}</h3>
+    <p>${escape(hint.text)}</p>
+    ${hint.code ? codeSample(hint.code) : ''}
+  </article>`;
+}
 function renderResult(task, p) {
   const result = p.result, solvedNow = result?.total > 0 && result.passed === result.total;
   document.querySelector('#test-result-status').hidden = !hasStaleResult(p);
@@ -632,8 +638,10 @@ function renderResult(task, p) {
   const action = document.querySelector('#coach-action');
   action.innerHTML = task.transfer ? '<p class="panel-note">Для чистоты эксперимента решайте задачу самостоятельно. Запускайте тесты кнопкой «Проверить».</p>' : solvedNow ? '<p class="coach-done">✓ Задача решена. Пора проверить навык!</p>' : p.hints >= 4 ? '<p class="panel-note">Все уровни помощи открыты. Примените решение в редакторе и нажмите «Проверить».</p>' : `<button class="button ${p.hints === 3 ? 'outline' : 'secondary'} full" id="hint" ${!result ? 'disabled' : ''}>${p.hints === 3 ? 'Открыть готовое решение · шаг 4' : p.hints ? 'Следующая подсказка · шаг ' + (p.hints + 1) : 'Получить первую подсказку'}</button><p class="panel-note">${!result ? 'Подсказка появится после проверки кода.' : p.hints === 3 ? 'После открытия решения награда составит 20 XP.' : 'Готовый код появится только на четвёртом шаге.'}</p>`;
   document.querySelector('#hint')?.addEventListener('click', () => {
+    const scrollTop = document.querySelector('#workspace-hints-panel').scrollTop;
     p.hints++; const hint = coachHint(task, p.result, p.hints); p.hintHistory.push(hint);
     event('hint_opened', { taskId: task.id, level: p.hints }); persist(); workspace(task);
+    document.querySelector('#workspace-hints-panel').scrollTop = scrollTop;
   });
 }
 function download() {
