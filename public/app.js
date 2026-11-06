@@ -68,10 +68,33 @@ function notify(text) {
   clearTimeout(notify.timer); notify.timer = setTimeout(() => el.classList.remove('visible'), 6500);
 }
 const arrow = '<span aria-hidden="true">↗</span>';
-function shell(page) {
+const bulbIconPath = 'M9 17 V16 C9 15 8.6 14.3 7.9 13.6 A6 6 0 1 1 16.1 13.6 C15.4 14.3 15 15 15 16 V17 Z M10 20 H14';
+function taskNavigationNumber(number, progress) {
+  if (!progress?.solved) {
+    return `<span class="task-navigation-number" aria-hidden="true">${escape(number)}</span>`;
+  }
+  const assisted = (progress.hintsAtSolve ?? progress.hints) > 0;
+  const status = assisted ? 'assisted' : 'independent';
+  const label = assisted ? 'Решено с подсказками' : 'Решено самостоятельно';
+  const iconPath = assisted ? bulbIconPath : 'm4.5 12 4.5 4.5 10.5-10.5';
+  return `<span class="task-navigation-number" data-completion="${status}" role="img" aria-label="${label}">${escape(number)}<svg class="task-navigation-status-icon" aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="${iconPath}"/></svg></span>`;
+}
+function taskNavigation(activeTaskId) {
+  return `<aside class="task-navigation">
+    <nav aria-label="Список задач">${tasks.map((task, index) => `
+      <a href="#task/${task.id}" ${task.id === activeTaskId ? 'aria-current="page"' : ''}>
+        ${taskNavigationNumber(String(index + 1).padStart(2, '0'), current().progress[task.id])}
+        <span>${escape(task.title)}</span>
+      </a>`).join('')}
+    </nav>
+  </aside>`;
+}
+function shell(page, activeTaskId) {
+  app.classList.toggle('has-task-navigation', page === 'workspace');
   app.innerHTML = `<header class="header"><a href="#home" class="brand" aria-label="CodeCoach на главную"><img src="./icon.svg" width="34" height="34" alt=""><span>Code<span class="muted">Coach</span></span></a>
     <nav aria-label="Основная навигация"><a href="#home" ${page === 'home' ? 'aria-current="page"' : ''}>Практика</a><a href="#report" ${page === 'report' ? 'aria-current="page"' : ''}>Результаты пилота</a></nav>
-    <div class="header-right"><span class="local-indicator">Локальный прототип</span><span class="avatar" title="Анонимный участник">${state.participants.findIndex(p => p.id === state.currentId) + 1}</span></div></header><main id="main" tabindex="-1"></main>
+    <div class="header-right"><span class="local-indicator">Локальный прототип</span><span class="avatar" title="Анонимный участник">${state.participants.findIndex(p => p.id === state.currentId) + 1}</span></div></header>
+    ${page === 'workspace' ? taskNavigation(activeTaskId) : ''}<main id="main" tabindex="-1"></main>
     <footer><span>CodeCoach · учебный прототип</span><span>JavaScript · без регистрации · прогресс в этом браузере</span></footer>`;
   return document.querySelector('#main');
 }
@@ -360,7 +383,7 @@ function workspace(task) {
   if (p.result && p.checkedCode === undefined) p.checkedCode = p.code;
   const helpOpen = openHelpPanels.has(p);
   if (!p.startedAt) { p.startedAt = Date.now(); event('task_opened', { taskId: task.id }); persist(); }
-  const main = shell('workspace');
+  const main = shell('workspace', task.id);
   main.innerHTML = `<div class="workspace-breadcrumb"><a href="#home">← Все задачи</a><span>ПРАКТИКА / ${escape(task.category.toUpperCase())}</span></div>
     <section class="workspace-title">
       <div class="workspace-heading"><div class="eyebrow">${task.transfer ? 'ШАГ 02 · ПРОВЕРКА ПЕРЕНОСА НАВЫКА' : 'ПРАКТИЧЕСКАЯ ЗАДАЧА'}</div><h1>${task.title}</h1></div>
@@ -377,7 +400,7 @@ function workspace(task) {
     <details class="workspace-side" id="workspace-help" ${helpOpen ? 'open' : ''}>
       <summary class="workspace-help-toggle" aria-label="${task.transfer ? 'Самостоятельная практика' : 'Подсказки и чат'}">
         <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 17 V16 C9 15 8.6 14.3 7.9 13.6 A6 6 0 1 1 16.1 13.6 C15.4 14.3 15 15 15 16 V17 Z M10 20 H14"/>
+          <path d="${bulbIconPath}"/>
         </svg>
         <span>${task.transfer ? 'Практика' : 'Подсказки'}</span>
         <svg class="workspace-help-close" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
@@ -484,6 +507,8 @@ function workspace(task) {
     if (recordResult(p, result, Date.now(), helpLevel)) {
       p.xp = reward(p.hintsAtSolve);
       event('task_solved', { taskId: task.id, xp: p.xp, hints: p.hintsAtSolve, attempts: p.attempts });
+      const number = document.querySelector('.task-navigation a[aria-current="page"] .task-navigation-number');
+      if (number) number.outerHTML = taskNavigationNumber(number.textContent, p);
     }
     event('code_checked', { taskId: task.id, trigger: 'manual', passed: result.passed || 0, total: result.total || 0, kind: result.kind || 'tests' });
     p.checkedCode = source;
