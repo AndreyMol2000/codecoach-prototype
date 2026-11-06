@@ -1,7 +1,7 @@
 import { tasks, getTask } from './tasks.js';
 import { runCode } from './runner.js';
 import { reward, coachHint, recommendation, experimentSummary } from './learning.js';
-import { loadState, saveState, newParticipant, getProgress, recordResult } from './store.js';
+import { loadState, saveState, newParticipant, getProgress, recordResult, usedHelpLevel } from './store.js';
 import hljs from './vendor/highlightjs/core.min.js';
 import javascript from './vendor/highlightjs/javascript.min.js';
 
@@ -55,6 +55,7 @@ function findCodeEditRange(source, before) {
 const hasStaleResult = progress => Boolean(progress.result && progress.checkedCode !== progress.code);
 const current = () => state.participants.find(p => p.id === state.currentId);
 const totalXP = () => Object.values(current().progress).reduce((sum, p) => sum + (p.xp || 0), 0);
+const taskReward = progress => progress.solved ? progress.xp : reward(usedHelpLevel(progress));
 const solvedCount = () => Object.values(current().progress).filter(p => p.solved).length;
 const stamp = ms => ms ? new Date(ms).toLocaleString('ru-RU') : '—';
 function duration(p) { return p?.solvedAt && p?.startedAt ? Math.max(1, Math.round((p.solvedAt - p.startedAt) / 1000)) + ' с' : '—'; }
@@ -247,6 +248,7 @@ function bindTaskChat(task, progress, editor) {
   }
   function renderChat() {
     if (!panel.isConnected) return;
+    document.querySelector('#workspace-xp').textContent = taskReward(progress);
     if (chat.messages.length) {
       log.replaceChildren();
       chat.messages.forEach(appendMessage);
@@ -329,6 +331,10 @@ function bindTaskChat(task, progress, editor) {
       const data = await response.json();
       if (response.ok && data?.ok && typeof data.answer === 'string' && data.answer.trim()) {
         message.answer = data.answer;
+        if (!progress.solved && message.helpLevel > (progress.chatHelpLevel ?? 0)) {
+          progress.chatHelpLevel = message.helpLevel;
+          persist();
+        }
         const { edit } = data;
         if (message.helpLevel === 4 && !data.truncated && typeof edit?.before === 'string' && typeof edit.after === 'string' && edit.before !== edit.after) {
           message.edit = edit;
@@ -362,7 +368,7 @@ function workspace(task) {
         <div><dt>Язык</dt><dd>JavaScript</dd></div>
         <div class="workspace-reward" title="Награда с учётом открытых подсказок">
           <dt id="workspace-xp-label">${p.solved ? 'Начислено' : 'За решение'}</dt>
-          <dd><span id="workspace-xp">${p.solved ? p.xp : reward(p.hints)}</span> <small>XP</small></dd>
+          <dd><span id="workspace-xp">${taskReward(p)}</span> <small>XP</small></dd>
         </div>
       </dl>
     </section>
@@ -460,6 +466,7 @@ function workspace(task) {
   async function checkCurrentCode() {
     if (checking || !editor.isConnected) return;
     const source = p.code;
+    const helpLevel = usedHelpLevel(p);
     checking = true;
     checkButton.disabled = true;
     checkLabel.textContent = 'Проверка…';
@@ -474,14 +481,14 @@ function workspace(task) {
     checkButton.disabled = false;
     checkLabel.textContent = 'Проверить';
     testsPanel.setAttribute('aria-busy', 'false');
-    if (recordResult(p, result)) {
-      p.xp = reward(p.hints);
-      event('task_solved', { taskId: task.id, xp: p.xp, hints: p.hints, attempts: p.attempts });
+    if (recordResult(p, result, Date.now(), helpLevel)) {
+      p.xp = reward(p.hintsAtSolve);
+      event('task_solved', { taskId: task.id, xp: p.xp, hints: p.hintsAtSolve, attempts: p.attempts });
     }
     event('code_checked', { taskId: task.id, trigger: 'manual', passed: result.passed || 0, total: result.total || 0, kind: result.kind || 'tests' });
     p.checkedCode = source;
     document.querySelector('#attempts').textContent = p.attempts;
-    document.querySelector('#workspace-xp').textContent = p.solved ? p.xp : reward(p.hints);
+    document.querySelector('#workspace-xp').textContent = taskReward(p);
     document.querySelector('#workspace-xp-label').textContent = p.solved ? 'Начислено' : 'За решение';
     persist();
     renderResult(task, p);

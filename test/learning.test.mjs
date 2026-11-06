@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { tasks, getTask } from '../public/tasks.js';
 import { execute } from '../public/runner-core.js';
 import { reward, coachHint, recommendation, experimentSummary } from '../public/learning.js';
-import { loadState, saveState, newParticipant, getProgress, recordResult } from '../public/store.js';
+import { loadState, saveState, newParticipant, getProgress, recordResult, usedHelpLevel } from '../public/store.js';
 
 test('Стартовая ошибка максимума действительно проявляется на отрицательных данных', () => {
   const t = getTask('maximum'), r = execute(t.starter, t);
@@ -50,6 +50,20 @@ test('Награда уменьшается с помощью и не начис
   assert.equal(recordResult(p, { passed: 6, total: 6 }, 1000), true);
   assert.equal(recordResult(p, { passed: 6, total: 6 }, 2000), false);
   assert.equal(p.solvedAt, 1000); assert.equal(p.hintsAtSolve, 2); assert.equal(p.attempts, 2);
+});
+test('Готовый ответ Qwen учитывается как четвёртый уровень помощи', () => {
+  const task = getTask('maximum');
+  const participant = newParticipant();
+  const progress = getProgress(participant, task);
+  progress.startedAt = 1000;
+  progress.chatHelpLevel = 4;
+
+  const submittedHelpLevel = usedHelpLevel(progress);
+  assert.equal(recordResult(progress, execute(task.solution, task), 2000, submittedHelpLevel), true);
+  assert.equal(progress.hints, 0);
+  assert.equal(progress.hintsAtSolve, 4);
+  assert.equal(reward(progress.hintsAtSolve), 20);
+  assert.equal(experimentSummary([participant]).guided, 0);
 });
 test('Маршрут направляет от исправления к задаче переноса', () => {
   assert.equal(recommendation({}).id, 'maximum');

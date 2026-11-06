@@ -16,10 +16,18 @@ export function saveState(state, storage) {
 export function getProgress(participant, task) {
   return participant.progress[task.id] ||= { code: task.starter, attempts: 0, hints: 0, hintHistory: [], solved: false, xp: 0, result: null, startedAt: null, solvedAt: null };
 }
-export function recordResult(progress, result, now = Date.now()) {
+export function usedHelpLevel(progress) {
+  return Math.max(progress.hints ?? 0, progress.chatHelpLevel ?? 0);
+}
+export function recordResult(progress, result, now = Date.now(), helpLevel = usedHelpLevel(progress)) {
   progress.attempts++;
   progress.result = result;
   const firstSolve = !progress.solved && result.total > 0 && result.passed === result.total;
-  if (firstSolve) { progress.solved = true; progress.solvedAt = now; progress.hintsAtSolve = progress.hints; progress.attemptsAtSolve = progress.attempts; }
+  if (firstSolve) {
+    progress.solved = true;
+    progress.solvedAt = now;
+    progress.hintsAtSolve = helpLevel;
+    progress.attemptsAtSolve = progress.attempts;
+  }
   return firstSolve;
 }
