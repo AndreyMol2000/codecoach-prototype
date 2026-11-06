@@ -14,7 +14,7 @@ const collapsedBriefs = new WeakSet();
 const openHelpPanels = new WeakSet();
 const taskChatHelpLabels = ['Намёк', 'Объяснение', 'Алгоритм', 'Решение'];
 const taskChatHelpLevels = ['Намёк и вопрос', 'Объяснение причины', 'Алгоритм словами', 'Разрешить готовый код и правки'];
-const taskChatEditCommand = /^(?:(?:да|пожалуйста)[,\s]+)*(?:сам[аи]?\s+)?(?:внеси|исправь|поправь|измени|замени|добавь|удали|перепиши)(?:те)?(?=[\s,.!?:]|$)/iu;
+const taskChatEditCommand = /^(?:(?:да|пожалуйста)[,\s]+)*(?:сам[аи]?\s+)?(?:внеси|исправь|поправь|измени|замени|добавь|удали|перепиши|реши)(?:те)?(?=[\s,.!?:]|$)/iu;
 const app = document.querySelector('#app');
 const escape = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const highlightCode = source => hljs.highlight(source, { language: 'javascript' }).value;
@@ -36,6 +36,20 @@ function renderChatAnswer(answer) {
     offset = match.index + match[0].length;
   }
   return html + paragraph(source.slice(offset));
+}
+
+function findCodeEditRange(source, before) {
+  if (!before && source) return null;
+  // The model may omit trailing spaces when it copies a line.
+  const pattern = before.replace(/[ \t]+\n/g, '\n')
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    .replaceAll('\n', '[ \\t]*\\n');
+  const matcher = new RegExp(pattern, 'g');
+  const match = matcher.exec(source);
+  if (!match) return null;
+  matcher.lastIndex = match.index + 1;
+  if (matcher.test(source)) return null;
+  return { start: match.index, end: match.index + match[0].length };
 }
 
 const hasStaleResult = progress => Boolean(progress.result && progress.checkedCode !== progress.code);
@@ -215,10 +229,9 @@ function bindTaskChat(task, progress, editor) {
     if (editor.disabled) return 'Дождитесь завершения проверки кода.';
     if (editor.value !== message.code) return 'Код в редакторе изменился. Запросите новую правку.';
     const { before, after } = message.edit;
-    const start = editor.value.indexOf(before);
-    const matches = before ? start !== -1 && editor.value.indexOf(before, start + 1) === -1 : editor.value === '';
-    if (!matches) return 'Не удалось однозначно найти фрагмент. Запросите новую правку.';
-    editor.setRangeText(after, start, start + before.length);
+    const range = findCodeEditRange(editor.value, before);
+    if (!range) return 'Не удалось однозначно найти фрагмент. Запросите новую правку.';
+    editor.setRangeText(after, range.start, range.end);
     editor.dispatchEvent(new Event('input'));
     message.editApplied = true;
     return '';

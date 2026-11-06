@@ -386,6 +386,15 @@
 .task-chat-message.task-chat-reply { margin-left: 0; margin-right: auto; border-radius: 12px 12px 12px 4px; }
 .task-chat-message details { margin-top: 8px; font-size: 11px; }
 .task-chat-message summary { color: #aab8a4; cursor: pointer; }
+.task-chat-message details > .code-sample {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+.task-chat-message details > .code-sample figcaption {
+  padding-right: 0;
+  border-right: 0;
+}
 .task-chat-message .code-sample + :is(p, button) { margin-top: 8px; }
 .task-chat-status {
   width: fit-content;
