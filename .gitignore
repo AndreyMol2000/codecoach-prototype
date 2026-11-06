@@ -10,3 +10,10 @@ codecoach-session-*.json
 codecoach-experiment-*.json
 .DS_Store
 Thumbs.db
+
+# Local n8n state, settings and model files
+**/.runtime/
+**/.local/
+**/.local-runtime.json
+*.gguf
+*.sqlite*

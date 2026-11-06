@@ -1,0 +1,9 @@
+{
+  "name": "codecoach-n8n-agent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "CodeCoach: настоящий LLM-наставник, n8n и отдельный веб-чат",
+  "scripts": { "build": "node scripts/build-workflow.mjs", "start": "node web-server.mjs", "test": "node --test" },
+  "engines": { "node": ">=22" }
+}

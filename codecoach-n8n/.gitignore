@@ -1,0 +1,12 @@
+.runtime/
+.local-runtime.json
+.local/
+.env
+.env.*
+node_modules/
+*.gguf
+*.log
+*.sqlite*
+*.zip
+*credentials*.json
+*transcript*.json
